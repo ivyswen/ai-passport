@@ -258,10 +258,13 @@ static bool stream_episode(const podcast_episode_t *ep, uint32_t start_offset,
             consumed_total = chunk_start + ((uint32_t)got - raw.len);
 
             // 同步断点(约 1 秒一次,够用了):锁内只做赋值,不做重活。
+            // 必须检查 generation:切台后旧流的 consumed_total 不能覆盖新节目的断点。
             if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                s_resume.byte_offset = consumed_total;
-                s_resume.elapsed_sec = elapsed_base_sec +
-                    (sample_rate ? elapsed_samples / sample_rate : 0);
+                if (s_generation == gen) {
+                    s_resume.byte_offset = consumed_total;
+                    s_resume.elapsed_sec = elapsed_base_sec +
+                        (sample_rate ? elapsed_samples / sample_rate : 0);
+                }
                 xSemaphoreGive(s_mutex);
             }
         }
@@ -404,9 +407,10 @@ void podcast_player_play_episode(const podcast_episode_t *ep) {
     s_resume.has_episode = true;
     s_resume.byte_offset = 0;
     s_resume.elapsed_sec = 0;
+    // generation 在锁内递增:避免与播放任务的断点同步竞态(旧偏移覆盖新节目的 0)。
+    s_generation++;
     xSemaphoreGive(s_mutex);
     s_elapsed_shadow = 0;
-    s_generation++;
     s_want_play = true;
     ESP_LOGI(TAG, "开始播放: %s", ep->title);
 }
@@ -506,11 +510,14 @@ bool podcast_player_play_next(void) {
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
     const bool ok = switch_locked(+1);
     title[0] = '\0';
-    if (ok) strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+    if (ok) {
+        strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+        // 锁内递增 generation,防播放任务的断点同步把旧偏移写回来。
+        s_generation++;
+    }
     xSemaphoreGive(s_mutex);
     if (!ok) return false;
     s_elapsed_shadow = 0;
-    s_generation++;
     s_want_play = true;
     ESP_LOGI(TAG, "下一期: %s", title);
     return true;
@@ -521,11 +528,14 @@ bool podcast_player_play_prev(void) {
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
     const bool ok = switch_locked(-1);
     title[0] = '\0';
-    if (ok) strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+    if (ok) {
+        strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+        // 锁内递增 generation,防播放任务的断点同步把旧偏移写回来。
+        s_generation++;
+    }
     xSemaphoreGive(s_mutex);
     if (!ok) return false;
     s_elapsed_shadow = 0;
-    s_generation++;
     s_want_play = true;
     ESP_LOGI(TAG, "上一期: %s", title);
     return true;
