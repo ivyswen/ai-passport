@@ -164,7 +164,31 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
     xQueueSend(s_evt_queue, &evt, 0);
 }
 
+// 自动熄屏:无按键 SCREEN_OFF_IDLE_SEC 秒后关背光,任意键唤醒(唤醒同时按键功能照常执行)。
+#define SCREEN_OFF_IDLE_SEC 60
+static int64_t s_last_key_us;   // 上次按键时间(esp_timer_get_time,us)
+static bool    s_screen_on = true;
+
+static void screen_wake(void) {
+    s_last_key_us = esp_timer_get_time();
+    if (!s_screen_on) {
+        s_screen_on = true;
+        bsp_display_backlight(100);
+        ESP_LOGI(TAG, "屏幕唤醒");
+    }
+}
+
+static void screen_idle_check(void) {
+    if (s_screen_on &&
+        (esp_timer_get_time() - s_last_key_us) > (int64_t)SCREEN_OFF_IDLE_SEC * 1000000LL) {
+        s_screen_on = false;
+        bsp_display_backlight(0);
+        ESP_LOGI(TAG, "自动熄屏(%ds 无操作)", SCREEN_OFF_IDLE_SEC);
+    }
+}
+
 static void handle_key(const app_evt_t *evt) {
+    screen_wake();  // 任意键先唤醒屏幕
     const net_cmd_t fetch = NET_FETCH;
     if (evt->ev == BSP_BTN_CLICK) {
         if (evt->btn == BSP_BTN_OK) {
@@ -250,6 +274,7 @@ void app_main(void) {
         return;
     }
     s_input_ready = true;  // 此后 on_key 才开始向主循环投递按键事件
+    s_last_key_us = esp_timer_get_time();  // 自动熄屏计时起点
 
     if (podcast_player_init() != ESP_OK) {
         ESP_LOGE(TAG, "播放器初始化失败");
@@ -262,9 +287,13 @@ void app_main(void) {
     xTaskCreate(net_task, "podcast_net", 6144, NULL, 4, NULL);
 
     // 主循环:处理按键与 WiFi 事件(网络抓取在 net_task)。
+    // 1s 超时而非永久阻塞,以便检查自动熄屏。
     app_evt_t evt;
     for (;;) {
-        if (xQueueReceive(s_evt_queue, &evt, portMAX_DELAY) != pdTRUE) continue;
+        if (xQueueReceive(s_evt_queue, &evt, pdMS_TO_TICKS(1000)) != pdTRUE) {
+            screen_idle_check();
+            continue;
+        }
         switch (evt.kind) {
         case EVT_KEY:
             handle_key(&evt);
