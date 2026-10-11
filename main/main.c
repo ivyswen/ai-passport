@@ -8,6 +8,7 @@
 //   上/下短按  切节目(上=更新的一期,下=更旧的一期,到头回绕)
 //   上/下长按  音量 +/-5
 //   OK 长按    检查更新(有新节目自动切换)
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -56,9 +57,6 @@ static volatile bool s_net_up;
 static volatile bool s_sntp_started;
 static volatile bool s_input_ready; // 按键分发就绪(队列+按钮初始化完成后置 true)
 
-// 节目单缓冲:24 期 × 约 440 字节 ≈ 10KB,net_task 栈只有 6KB,放文件作用域。
-static podcast_episode_t s_episode_list[PODCAST_EPISODES_MAX];
-
 // 深睡按键唤醒保护:唤醒那颗键在整个启动期间还按着,先挡住它的动作,
 // 直到松手(或 10 秒超时),否则一开机就会误触发一次播放/暂停。
 // 状态机在 key_guard.h,契约由 tests/test_key_wake_contract.py 锁定。
@@ -102,10 +100,16 @@ static void net_task(void *arg) {
         }
 
         // 刷新节目单(供上下键切台);失败则保留旧单,不影响播放。
-        const int n_eps = podcast_api_fetch_episodes(base, s_episode_list,
-                                                     PODCAST_EPISODES_MAX);
-        if (n_eps >= 0) {
-            podcast_player_set_playlist(s_episode_list, n_eps);
+        // 用完即释放,不常驻内存。
+        podcast_playlist_item_t *pl = malloc(sizeof(*pl) * PODCAST_EPISODES_MAX);
+        if (pl) {
+            const int n_eps = podcast_api_fetch_episodes(base, pl, PODCAST_EPISODES_MAX);
+            if (n_eps >= 0) {
+                podcast_player_set_playlist(pl, n_eps);
+            }
+            free(pl);
+        } else {
+            ESP_LOGW(TAG, "节目单缓冲分配失败,保留旧单");
         }
 
         podcast_episode_t cur;

@@ -150,6 +150,24 @@ static bool parse_episode(const cJSON *item, podcast_episode_t *out) {
     return out->video_id[0] != '\0' && out->audio_url[0] != '\0';
 }
 
+// 从 cJSON 对象填节目单条目(精简版)。返回 false 表示缺少必要字段。
+static bool parse_playlist_item(const cJSON *item, podcast_playlist_item_t *out) {
+    const cJSON *j_id = cJSON_GetObjectItem(item, "video_id");
+    const cJSON *j_title = cJSON_GetObjectItem(item, "title");
+    const cJSON *j_pub = cJSON_GetObjectItem(item, "published_at");
+    const cJSON *j_dur = cJSON_GetObjectItem(item, "duration_sec");
+    if (!cJSON_IsString(j_id) || !cJSON_IsString(j_title)) {
+        return false;
+    }
+    memset(out, 0, sizeof(*out));
+    strncpy(out->video_id, j_id->valuestring, sizeof(out->video_id) - 1);
+    strncpy(out->title, j_title->valuestring, sizeof(out->title) - 1);
+    extract_date(cJSON_IsString(j_pub) ? j_pub->valuestring : NULL,
+                 out->date, sizeof(out->date));
+    if (cJSON_IsNumber(j_dur)) out->duration_sec = (uint32_t)j_dur->valuedouble;
+    return out->video_id[0] != '\0';
+}
+
 esp_err_t podcast_api_fetch_latest(const char *base, podcast_episode_t *out) {
     if (!base || !out) return ESP_ERR_INVALID_ARG;
 
@@ -182,7 +200,7 @@ esp_err_t podcast_api_fetch_latest(const char *base, podcast_episode_t *out) {
 // 节目列表比单期大得多:10 期 × 每期约 400 字节 ≈ 4KB,上限给 8KB。
 #define API_EPISODES_MAX_BYTES 8192
 
-int podcast_api_fetch_episodes(const char *base, podcast_episode_t *out, int max_out) {
+int podcast_api_fetch_episodes(const char *base, podcast_playlist_item_t *out, int max_out) {
     if (!base || !out || max_out <= 0) return -1;
 
     char *buf = malloc(API_EPISODES_MAX_BYTES);
@@ -210,7 +228,7 @@ int podcast_api_fetch_episodes(const char *base, podcast_episode_t *out, int max
     const cJSON *item = NULL;
     cJSON_ArrayForEach(item, j_eps) {
         if (count >= max_out) break;
-        if (parse_episode(item, &out[count])) count++;
+        if (parse_playlist_item(item, &out[count])) count++;
     }
     ESP_LOGI(TAG, "节目列表: %d 期", count);
 

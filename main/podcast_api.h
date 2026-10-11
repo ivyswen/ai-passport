@@ -19,4 +19,4 @@ esp_err_t podcast_api_fetch_latest(const char *base, podcast_episode_t *out);
 
 // 拉取节目列表(发布时间倒序,最多 max_out 期)。成功返回实际期数(>=0),
 // 失败返回 -1(此时 out 内容不可用,调用方保留旧列表)。
-int podcast_api_fetch_episodes(const char *base, podcast_episode_t *out, int max_out);
+int podcast_api_fetch_episodes(const char *base, podcast_playlist_item_t *out, int max_out);

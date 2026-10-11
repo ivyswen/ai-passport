@@ -12,7 +12,8 @@
 #define PODCAST_VIDEO_ID_MAX 32
 #define PODCAST_URL_MAX      256   // 音频相对路径 "/audio/<id>.mp3"
 #define PODCAST_DATE_MAX     16    // "YYYY-MM-DD" + NUL
-#define PODCAST_EPISODES_MAX 24    // 设备端节目单上限(内存与单次解析开销的折中)
+#define PODCAST_EPISODES_MAX 24    // 设备端节目单上限
+#define PODCAST_PL_TITLE_MAX 128   // 节目单标题截断长度(含 NUL)
 
 // 中转服务返回的单期节目信息(对应 GET /api/latest 的 JSON)。
 typedef struct {
@@ -22,6 +23,15 @@ typedef struct {
     char     audio_url[PODCAST_URL_MAX];
     uint32_t duration_sec;          // 0 表示未知
 } podcast_episode_t;
+
+// 节目单条目(精简版,省内存):
+// audio_url 恒为 "/audio/<video_id>.mp3",由 video_id 现场拼出,不存。
+typedef struct {
+    char     video_id[PODCAST_VIDEO_ID_MAX];
+    char     title[PODCAST_PL_TITLE_MAX];
+    char     date[PODCAST_DATE_MAX];
+    uint32_t duration_sec;
+} podcast_playlist_item_t;
 
 typedef enum {
     PODCAST_STATE_IDLE,          // 未开始(等待网络或节目单)

@@ -48,10 +48,16 @@ static volatile uint8_t  s_volume = 60;
 static resume_point_t    s_resume;           // 受 s_mutex 保护
 static volatile uint32_t s_elapsed_shadow = 0; // UI 轮询用(任务内更新)
 
+// 流缓冲:初始化时一次分配、永久复用。运行时的堆碎片曾导致每播必 malloc 失败
+// (2026-10-11),改在堆最干净的启动阶段分配。
+static uint8_t *s_stream_input;   // PLAYER_INPUT_BYTES
+static uint8_t *s_stream_output;  // PLAYER_PCM_BYTES
+
 // 节目单:发布时间倒序(新→旧),与 /api/episodes 一致。受 s_mutex 保护。
 // 上=往新(下标-1),下=往旧(下标+1),到头回绕。
-static podcast_episode_t s_playlist[PODCAST_EPISODES_MAX];
-static int               s_playlist_count;
+// 精简条目省内存(24×180B≈4.3KB);播放时由 video_id 现场拼 audio_url。
+static podcast_playlist_item_t s_playlist[PODCAST_EPISODES_MAX];
+static int                     s_playlist_count;
 
 static void nvs_save_u8(const char *key, uint8_t v) {
     nvs_handle_t h;
@@ -124,8 +130,9 @@ static bool stream_episode(const podcast_episode_t *ep, uint32_t start_offset,
 
     bool played = false;
     esp_audio_simple_dec_handle_t decoder = NULL;
-    uint8_t *input = NULL;
-    uint8_t *output = NULL;
+    // 用初始化时预分配的流缓冲(堆干净时分配,避开运行时碎片)。
+    uint8_t *input = s_stream_input;
+    uint8_t *output = s_stream_output;
     uint32_t consumed_total = start_offset;  // 本次连接内已消费字节(含起始偏移)
     uint32_t elapsed_samples = 0;
     uint32_t elapsed_base_sec = start_elapsed;  // 断点续播时,已播秒数的起点
@@ -159,10 +166,8 @@ static bool stream_episode(const podcast_episode_t *ep, uint32_t start_offset,
             ESP_LOGE(TAG, "MP3 解码器打开失败");
             break;
         }
-        input = malloc(PLAYER_INPUT_BYTES);
-        output = malloc(PLAYER_PCM_BYTES);
         if (!input || !output) {
-            ESP_LOGE(TAG, "流缓冲分配失败");
+            ESP_LOGE(TAG, "流缓冲不可用");
             break;
         }
 
@@ -263,8 +268,6 @@ static bool stream_episode(const podcast_episode_t *ep, uint32_t start_offset,
     } while (0);
 
     if (decoder) esp_audio_simple_dec_close(decoder);
-    free(output);
-    free(input);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     return played;
@@ -368,6 +371,14 @@ esp_err_t podcast_player_init(void) {
     }
     bsp_audio_set_volume(s_volume);
 
+    // 流缓冲尽早分配:此时堆最干净。失败也不致命,播放时会再试(并打日志)。
+    s_stream_input = malloc(PLAYER_INPUT_BYTES);
+    s_stream_output = malloc(PLAYER_PCM_BYTES);
+    if (!s_stream_input || !s_stream_output) {
+        ESP_LOGW(TAG, "流缓冲预分配失败(%u+%u 字节),播放时再试",
+                 PLAYER_INPUT_BYTES, PLAYER_PCM_BYTES);
+    }
+
     if (xTaskCreate(player_task, "podcast_stream", PLAYER_TASK_STACK,
                     NULL, PLAYER_TASK_PRIO, &s_task) != pdPASS) {
         ESP_LOGE(TAG, "播放任务创建失败");
@@ -445,19 +456,28 @@ static int playlist_index_of_locked(const char *video_id) {
 }
 
 // 切台核心:下标 step(+1 往旧,-1 往新),到头回绕。调用方需已持有 s_mutex。
+// 从精简条目还原完整 episode(audio_url 按中转约定现场拼)。
 static bool switch_locked(int step) {
     if (s_playlist_count == 0) return false;
     int idx = playlist_index_of_locked(s_resume.has_episode ? s_resume.ep.video_id : NULL);
     if (idx < 0) idx = (step > 0) ? -1 : 0;  // 当前不在单里:下=从最新开始,上=从最旧开始
     idx = (idx + step + s_playlist_count) % s_playlist_count;
-    s_resume.ep = s_playlist[idx];
+    const podcast_playlist_item_t *it = &s_playlist[idx];
+    podcast_episode_t ep;
+    memset(&ep, 0, sizeof(ep));
+    strncpy(ep.video_id, it->video_id, sizeof(ep.video_id) - 1);
+    strncpy(ep.title, it->title, sizeof(ep.title) - 1);
+    strncpy(ep.date, it->date, sizeof(ep.date) - 1);
+    snprintf(ep.audio_url, sizeof(ep.audio_url), "/audio/%s.mp3", it->video_id);
+    ep.duration_sec = it->duration_sec;
+    s_resume.ep = ep;
     s_resume.has_episode = true;
     s_resume.byte_offset = 0;
     s_resume.elapsed_sec = 0;
     return true;
 }
 
-void podcast_player_set_playlist(const podcast_episode_t *eps, int count) {
+void podcast_player_set_playlist(const podcast_playlist_item_t *eps, int count) {
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
     if (!eps || count <= 0) {
         s_playlist_count = 0;
