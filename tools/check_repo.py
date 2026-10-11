@@ -36,7 +36,11 @@ ROOT_MARKDOWN_ALLOWLIST = {
 }
 # Register only concrete, vendored component directories, e.g. "components/foo".
 # These exemptions never change the input to sensitive-content/conflict checks.
-VENDORED_DOC_ROOTS: tuple[str, ...] = ()
+VENDORED_DOC_ROOTS: tuple[str, ...] = (
+    # 本地 vendor 的 78/esp-wifi-connect(含扫描 vector 上限补丁),上游文档不遵循
+    # 本仓库的中英双语规范,豁免文档检查。
+    "components/esp-wifi-connect",
+)
 
 
 def vendored_document_roots(errors: list[str]) -> tuple[Path, ...]:

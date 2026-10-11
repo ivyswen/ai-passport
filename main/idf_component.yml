@@ -4,7 +4,11 @@ dependencies:
   # MP3 流式解码(esp_audio_simple_dec)与默认解码器注册,LEO RADIO 同款。
   espressif/esp_audio_codec: "~2.5.0"
   # WiFi 配网:STA + AP 门户(192.168.4.1),与 LEO RADIO 同款组件。
-  78/esp-wifi-connect: "^3.2.2"
+  # 注意:已 vendor 到 components/esp-wifi-connect(本地覆盖),因上游 3.3.1 在
+  # WIFI_EVENT_SCAN_DONE 里无上限 resize vector,AP 多时堆分配失败抛异常导致
+  # abort(2026-10-11 配网崩溃)。本地补丁:扫描记录上限 32 条。升级上游版本时
+  # 请检查该补丁是否仍需保留。
+  # 78/esp-wifi-connect: "^3.2.2" (已本地化,见 components/esp-wifi-connect)
   # 解析 wj-relay.local(mDNS),免手动配中转 IP。
   espressif/mdns: "^1.0.0"
   idf: ">=5.5.0"
