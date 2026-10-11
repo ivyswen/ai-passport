@@ -4,8 +4,9 @@
 // 音频(MP3 流),解码播放。UI 是播客机自己的设计(非 demo 菜单)。
 //
 // 按键语义:
-//   OK 短按   播放/暂停
-//   上/下短按  音量 +/-5
+//   OK 短按    播放/暂停
+//   上/下短按  切节目(上=更新的一期,下=更旧的一期,到头回绕)
+//   上/下长按  音量 +/-5
 //   OK 长按    检查更新(有新节目自动切换)
 #include <string.h>
 #include <time.h>
@@ -55,6 +56,9 @@ static volatile bool s_net_up;
 static volatile bool s_sntp_started;
 static volatile bool s_input_ready; // 按键分发就绪(队列+按钮初始化完成后置 true)
 
+// 节目单缓冲:24 期 × 约 440 字节 ≈ 10KB,net_task 栈只有 6KB,放文件作用域。
+static podcast_episode_t s_episode_list[PODCAST_EPISODES_MAX];
+
 // 深睡按键唤醒保护:唤醒那颗键在整个启动期间还按着,先挡住它的动作,
 // 直到松手(或 10 秒超时),否则一开机就会误触发一次播放/暂停。
 // 状态机在 key_guard.h,契约由 tests/test_key_wake_contract.py 锁定。
@@ -95,6 +99,13 @@ static void net_task(void *arg) {
         if (podcast_api_fetch_latest(base, &latest) != ESP_OK) {
             ESP_LOGW(TAG, "拉取节目单失败");
             continue;
+        }
+
+        // 刷新节目单(供上下键切台);失败则保留旧单,不影响播放。
+        const int n_eps = podcast_api_fetch_episodes(base, s_episode_list,
+                                                     PODCAST_EPISODES_MAX);
+        if (n_eps >= 0) {
+            podcast_player_set_playlist(s_episode_list, n_eps);
         }
 
         podcast_episode_t cur;
@@ -161,14 +172,28 @@ static void handle_key(const app_evt_t *evt) {
                 podcast_player_toggle();
             }
         } else if (evt->btn == BSP_BTN_UP) {
-            podcast_player_set_volume(podcast_player_get_volume() + 5);
+            if (!podcast_player_play_prev()) {
+                ESP_LOGI(TAG, "无节目单,无法切换");
+            }
+        } else if (evt->btn == BSP_BTN_DOWN) {
+            if (!podcast_player_play_next()) {
+                ESP_LOGI(TAG, "无节目单,无法切换");
+            }
+        }
+    } else if (evt->ev == BSP_BTN_LONG) {
+        if (evt->btn == BSP_BTN_OK) {
+            ESP_LOGI(TAG, "手动检查更新");
+            xQueueSend(s_net_queue, &fetch, 0);
+        } else if (evt->btn == BSP_BTN_UP) {
+            const uint8_t v = podcast_player_get_volume() + 5;
+            podcast_player_set_volume(v);
+            podcast_ui_show_volume(podcast_player_get_volume());
         } else if (evt->btn == BSP_BTN_DOWN) {
             const uint8_t v = podcast_player_get_volume();
-            podcast_player_set_volume(v >= 5 ? v - 5 : 0);
+            const uint8_t nv = v >= 5 ? v - 5 : 0;
+            podcast_player_set_volume(nv);
+            podcast_ui_show_volume(nv);
         }
-    } else if (evt->ev == BSP_BTN_LONG && evt->btn == BSP_BTN_OK) {
-        ESP_LOGI(TAG, "手动检查更新");
-        xQueueSend(s_net_queue, &fetch, 0);
     }
 }
 

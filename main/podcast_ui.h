@@ -5,6 +5,8 @@
 // 所有函数都必须在 LVGL 任务内或持有 bsp_lvgl_lock() 时调用。
 #pragma once
 
+#include <stdint.h>
+
 // 初始化主界面(标题/进度条/状态/提示)。LVGL 初始化完成后调一次。
 void podcast_ui_init(void);
 
@@ -16,3 +18,7 @@ void podcast_ui_show_config_ap(const char *ap_ssid);
 
 // 回到主界面(配网完成后)。
 void podcast_ui_show_main(void);
+
+// 调音量后调用:状态行显示 "音量 NN%" 2 秒后自动恢复。
+// 线程安全(只写共享变量,真正的 label 更新在 tick 里做);可在按键回调里直接调。
+void podcast_ui_show_volume(uint8_t vol);

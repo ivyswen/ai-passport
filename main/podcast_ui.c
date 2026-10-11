@@ -24,7 +24,7 @@ static lv_font_t s_font_16, s_font_20;
 
 static lv_obj_t *s_screen;
 static lv_obj_t *s_time_label, *s_batt_label;
-static lv_obj_t *s_date_label, *s_title_label;
+static lv_obj_t *s_date_label, *s_title_label, *s_index_label;
 static lv_obj_t *s_bar, *s_elapsed_label, *s_total_label;
 static lv_obj_t *s_status_label;
 static lv_obj_t *s_config_screen, *s_config_label;
@@ -33,6 +33,18 @@ static lv_obj_t *s_config_screen, *s_config_label;
 static char     s_last_title[PODCAST_TITLE_MAX];
 static char     s_last_status[32];
 static int      s_last_elapsed = -1;
+static int      s_last_idx = -2;    // 节目单下标缓存(-2=未初始化)
+static int      s_last_count = -1;  // 节目单期数缓存
+
+// 音量 transient 提示:调音量后 2 秒内状态行显示 "音量 75%"。
+// show_volume 由主任务(按键)调用,只写这两个变量;真正的 label 更新在 tick(LVGL 任务)里做。
+static volatile uint32_t s_vol_until_ms;
+static volatile uint8_t  s_vol_value;
+
+void podcast_ui_show_volume(uint8_t vol) {
+    s_vol_value = vol;
+    s_vol_until_ms = lv_tick_get() + 2000;
+}
 static uint32_t s_last_total = 0xFFFFFFFF;
 static int      s_last_min = -1;
 static int      s_last_batt = -2;
@@ -77,9 +89,15 @@ void podcast_ui_init(void) {
     lv_obj_set_style_border_width(line, 0, 0);
     lv_obj_set_style_radius(line, 0, 0);
 
-    // 日期 + 节目标题(超长自动滚动)。
+    // 日期 + 节目标题(超长自动滚动)。初始占位避免 LVGL 默认 "Text"。
     s_date_label = make_label(s_screen, &s_font_16, C_CYAN, 12, 48, 216);
+    lv_label_set_text(s_date_label, "");
+    // 右上角 "3/10":当前是节目单里第几期(1-based)。
+    s_index_label = make_label(s_screen, &s_font_16, C_DIM, 170, 48, 58);
+    lv_obj_set_style_text_align(s_index_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(s_index_label, "");
     s_title_label = make_label(s_screen, &s_font_20, C_TEXT, 12, 76, 216);
+    lv_label_set_text(s_title_label, "…");
     lv_label_set_long_mode(s_title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
     // 进度条 + 时间。
@@ -98,9 +116,9 @@ void podcast_ui_init(void) {
 
     // 底部按键提示。
     lv_obj_t *hint1 = make_label(s_screen, &s_font_16, C_DIM, 12, 272, 216);
-    lv_label_set_text(hint1, "OK 播放/暂停·上下 音量");
+    lv_label_set_text(hint1, "OK 播放/暂停 上下切节目");
     lv_obj_t *hint2 = make_label(s_screen, &s_font_16, C_DIM, 12, 294, 216);
-    lv_label_set_text(hint2, "长按OK 检查更新");
+    lv_label_set_text(hint2, "长按OK 查更新 长按上下音量");
 
     lv_scr_load(s_screen);
 }
@@ -146,6 +164,18 @@ void podcast_ui_tick(void) {
         lv_label_set_text(s_date_label, "");
     }
 
+    // 节目单位置 "3/10"(1-based),节目/单变化时刷新。
+    const int pl_count = podcast_player_playlist_count();
+    const int pl_idx = podcast_player_playlist_index();
+    if (pl_idx != s_last_idx || pl_count != s_last_count) {
+        s_last_idx = pl_idx;
+        s_last_count = pl_count;
+        char ibuf[24];
+        if (pl_idx >= 0 && pl_count > 0) snprintf(ibuf, sizeof(ibuf), "%d/%d", pl_idx + 1, pl_count);
+        else ibuf[0] = '\0';
+        lv_label_set_text(s_index_label, ibuf);
+    }
+
     // 进度。
     const uint32_t elapsed = podcast_player_elapsed_sec();
     const uint32_t total = has_ep ? ep.duration_sec : 0;
@@ -170,7 +200,17 @@ void podcast_ui_tick(void) {
         if (total == 0) lv_bar_set_value(s_bar, 0, LV_ANIM_OFF);
     }
 
-    // 状态。
+    // 状态(调音量后 2 秒内优先显示音量百分比)。
+    const uint32_t now_ms = lv_tick_get();
+    if (now_ms < s_vol_until_ms) {
+        char vbuf[24];
+        snprintf(vbuf, sizeof(vbuf), "音量 %d%%", s_vol_value);
+        if (strcmp(vbuf, s_last_status) != 0) {
+            strncpy(s_last_status, vbuf, sizeof(s_last_status) - 1);
+            lv_label_set_text(s_status_label, vbuf);
+        }
+        return;
+    }
     const podcast_state_t st = podcast_player_state();
     const char *txt = podcast_state_text(st);
     if (strcmp(txt, s_last_status) != 0) {

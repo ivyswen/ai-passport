@@ -48,6 +48,11 @@ static volatile uint8_t  s_volume = 60;
 static resume_point_t    s_resume;           // 受 s_mutex 保护
 static volatile uint32_t s_elapsed_shadow = 0; // UI 轮询用(任务内更新)
 
+// 节目单:发布时间倒序(新→旧),与 /api/episodes 一致。受 s_mutex 保护。
+// 上=往新(下标-1),下=往旧(下标+1),到头回绕。
+static podcast_episode_t s_playlist[PODCAST_EPISODES_MAX];
+static int               s_playlist_count;
+
 static void nvs_save_u8(const char *key, uint8_t v) {
     nvs_handle_t h;
     if (nvs_open("podcast", NVS_READWRITE, &h) != ESP_OK) return;
@@ -428,4 +433,80 @@ bool podcast_player_current_episode(podcast_episode_t *out) {
     if (ok) *out = s_resume.ep;
     xSemaphoreGive(s_mutex);
     return ok;
+}
+
+// 在节目单里找 video_id 的下标,找不到返回 -1。调用方需已持有 s_mutex。
+static int playlist_index_of_locked(const char *video_id) {
+    if (!video_id || !video_id[0]) return -1;
+    for (int i = 0; i < s_playlist_count; i++) {
+        if (strcmp(s_playlist[i].video_id, video_id) == 0) return i;
+    }
+    return -1;
+}
+
+// 切台核心:下标 step(+1 往旧,-1 往新),到头回绕。调用方需已持有 s_mutex。
+static bool switch_locked(int step) {
+    if (s_playlist_count == 0) return false;
+    int idx = playlist_index_of_locked(s_resume.has_episode ? s_resume.ep.video_id : NULL);
+    if (idx < 0) idx = (step > 0) ? -1 : 0;  // 当前不在单里:下=从最新开始,上=从最旧开始
+    idx = (idx + step + s_playlist_count) % s_playlist_count;
+    s_resume.ep = s_playlist[idx];
+    s_resume.has_episode = true;
+    s_resume.byte_offset = 0;
+    s_resume.elapsed_sec = 0;
+    return true;
+}
+
+void podcast_player_set_playlist(const podcast_episode_t *eps, int count) {
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
+    if (!eps || count <= 0) {
+        s_playlist_count = 0;
+    } else {
+        if (count > PODCAST_EPISODES_MAX) count = PODCAST_EPISODES_MAX;
+        memcpy(s_playlist, eps, (size_t)count * sizeof(s_playlist[0]));
+        s_playlist_count = count;
+    }
+    xSemaphoreGive(s_mutex);
+    ESP_LOGI(TAG, "节目单更新: %d 期", s_playlist_count);
+}
+
+int podcast_player_playlist_count(void) {
+    return s_playlist_count;  // int 读写原子,无需加锁
+}
+
+int podcast_player_playlist_index(void) {
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return -1;
+    const int idx = playlist_index_of_locked(s_resume.has_episode ? s_resume.ep.video_id : NULL);
+    xSemaphoreGive(s_mutex);
+    return idx;
+}
+
+bool podcast_player_play_next(void) {
+    char title[PODCAST_TITLE_MAX];
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
+    const bool ok = switch_locked(+1);
+    title[0] = '\0';
+    if (ok) strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+    xSemaphoreGive(s_mutex);
+    if (!ok) return false;
+    s_elapsed_shadow = 0;
+    s_generation++;
+    s_want_play = true;
+    ESP_LOGI(TAG, "下一期: %s", title);
+    return true;
+}
+
+bool podcast_player_play_prev(void) {
+    char title[PODCAST_TITLE_MAX];
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return false;
+    const bool ok = switch_locked(-1);
+    title[0] = '\0';
+    if (ok) strncpy(title, s_resume.ep.title, sizeof(title) - 1);
+    xSemaphoreGive(s_mutex);
+    if (!ok) return false;
+    s_elapsed_shadow = 0;
+    s_generation++;
+    s_want_play = true;
+    ESP_LOGI(TAG, "上一期: %s", title);
+    return true;
 }

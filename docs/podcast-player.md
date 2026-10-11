@@ -25,7 +25,8 @@ AI Passport (this branch): WiFi → stream → MP3 decode → ES8311 playback
 | Action | Behavior |
 |---|---|
 | OK short press | Play / pause |
-| Up / Down short press | Volume +/-5 (persisted in NVS) |
+| Up / Down short press | Switch episode (Up = newer, Down = older, wraps around; position shown as x/y) |
+| Up / Down long press | Volume +/-5 (persisted in NVS, percentage shown on screen for 2s) |
 | OK long press | Check for updates (auto-switches when a new episode exists) |
 
 Playback position is kept across network/stream drops and resumed via HTTP

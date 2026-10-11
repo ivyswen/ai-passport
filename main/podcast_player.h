@@ -22,6 +22,16 @@ void podcast_player_set_network(bool connected);
 // 播放指定节目(拷贝一份)。打断当前流,断点清零。
 void podcast_player_play_episode(const podcast_episode_t *ep);
 
+// 节目单(发布时间倒序,新→旧)。后台任务拉取后调用,播放器拷贝一份。
+// 上=往新(下标-1),下=往旧(下标+1),到头回绕。
+void podcast_player_set_playlist(const podcast_episode_t *eps, int count);
+// 节目单期数;当前播放节目的下标(0-based),无节目/不在单里返回 -1。
+int podcast_player_playlist_count(void);
+int podcast_player_playlist_index(void);
+// 切到下一期(更旧)/上一期(更新),到头回绕;无节目单时返回 false。
+bool podcast_player_play_next(void);
+bool podcast_player_play_prev(void);
+
 // 播放/暂停切换。暂停保留断点(字节偏移+已播秒数),恢复时断点续播。
 void podcast_player_toggle(void);
 

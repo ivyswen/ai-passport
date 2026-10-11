@@ -12,6 +12,7 @@
 #define PODCAST_VIDEO_ID_MAX 32
 #define PODCAST_URL_MAX      256   // 音频相对路径 "/audio/<id>.mp3"
 #define PODCAST_DATE_MAX     16    // "YYYY-MM-DD" + NUL
+#define PODCAST_EPISODES_MAX 24    // 设备端节目单上限(内存与单次解析开销的折中)
 
 // 中转服务返回的单期节目信息(对应 GET /api/latest 的 JSON)。
 typedef struct {
