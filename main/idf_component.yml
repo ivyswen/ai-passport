@@ -1,0 +1,10 @@
+## main 组件的托管依赖 IDF Component Manager 用。
+## 构建时需要联网下载(走 https_proxy)。
+dependencies:
+  # MP3 流式解码(esp_audio_simple_dec)与默认解码器注册,LEO RADIO 同款。
+  espressif/esp_audio_codec: "~2.5.0"
+  # WiFi 配网:STA + AP 门户(192.168.4.1),与 LEO RADIO 同款组件。
+  78/esp-wifi-connect: "^3.2.2"
+  # 解析 wj-relay.local(mDNS),免手动配中转 IP。
+  espressif/mdns: "^1.0.0"
+  idf: ">=5.5.0"

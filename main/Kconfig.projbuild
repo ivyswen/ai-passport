@@ -1,0 +1,17 @@
+# main/Kconfig.projbuild —— 播客机应用配置(idf.py menuconfig → Podcast Player)。
+
+menu "Podcast Player"
+
+    config PODCAST_RELAY_HOST
+        string "中转服务主机"
+        default "wj-relay.local"
+        help
+            局域网中转服务的主机名或 IP。中转默认广播 wj-relay.local(mDNS),
+            盒子 IP 固定时也可直接填 IP(此时跳过 mDNS 查询)。
+
+    config PODCAST_RELAY_PORT
+        int "中转服务端口"
+        range 1 65535
+        default 8080
+
+endmenu
