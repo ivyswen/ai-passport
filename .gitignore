@@ -11,3 +11,7 @@ managed_components/
 /.agents/skills/passport-build
 /.agents/skills/passport-device-test
 /.agents/skills/passport-debug
+
+# 播客机:lv_font_conv 生成的中文字库(1.4MB,构建时用 tools/gen_podcast_font.py 重新生成)
+main/podcast_font_16.c
+main/podcast_font_20.c
