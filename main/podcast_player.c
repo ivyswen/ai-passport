@@ -399,7 +399,7 @@ void podcast_player_toggle(void) {
     s_want_play = !s_want_play;
     s_generation++;
     set_state(s_want_play ? PODCAST_STATE_CONNECTING : PODCAST_STATE_PAUSED);
-    ESP_LOGI(TAG, s_want_play ? "继续播放" : "暂停");
+    ESP_LOGI(TAG, "%s", s_want_play ? "继续播放" : "暂停");
 }
 
 void podcast_player_set_volume(uint8_t volume) {

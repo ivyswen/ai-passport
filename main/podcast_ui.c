@@ -126,7 +126,7 @@ void podcast_ui_tick(void) {
     const int soc = bsp_battery_soc();
     if (soc != s_last_batt) {
         s_last_batt = soc;
-        char bbuf[8];
+        char bbuf[16];
         if (soc >= 0) snprintf(bbuf, sizeof(bbuf), "%d%%", soc);
         else snprintf(bbuf, sizeof(bbuf), "--");
         lv_label_set_text(s_batt_label, bbuf);

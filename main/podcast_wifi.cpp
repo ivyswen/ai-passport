@@ -19,8 +19,7 @@ void podcast_wifi_init(podcast_wifi_event_cb_t cb, void *user) {
     if (s_initialized) return;
 
     WifiManagerConfig config;
-    config.ssid_prefix = "WJ-Podcast";
-    config.fixed_ap_ssid = "WJ-Podcast";
+    config.ssid_prefix = "WJ-Podcast";  // 配网热点 SSID 为 WJ-Podcast-XXXX（XXXX 为 MAC 后缀）
     config.language = "zh-CN";
     config.station_hostname = "wj-podcast";
     config.station_scan_min_interval_seconds = 10;

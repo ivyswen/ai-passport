@@ -58,16 +58,23 @@ esp_err_t podcast_api_resolve_base(char *out, size_t out_len) {
     char ip_str[32] = {0};
 
     // 优先 mDNS:中转服务上线时会广播 wj-relay.local,省掉手动配 IP。
+    // 注意 mdns_query_a 要求主机名不带 .local 后缀(见 mdns 组件文档),这里先剥掉。
     if (strstr(host, ".local") != NULL) {
-        esp_ip4_addr_t addr = {0};
-        esp_err_t err = mdns_query_a(host, 2000, &addr);
-        if (err == ESP_OK && addr.addr != 0) {
-            snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&addr));
-            ESP_LOGI(TAG, "mDNS 解析 %s -> %s", host, ip_str);
-            host = ip_str;
-        } else {
-            ESP_LOGW(TAG, "mDNS 解析 %s 失败(%s),回退直连主机名",
-                     host, esp_err_to_name(err));
+        char bare[64];
+        size_t hlen = strlen(host);
+        if (hlen > 6 && hlen < sizeof(bare)) {
+            memcpy(bare, host, hlen - 6);
+            bare[hlen - 6] = 0;
+            esp_ip4_addr_t addr = {0};
+            esp_err_t err = mdns_query_a(bare, 2000, &addr);
+            if (err == ESP_OK && addr.addr != 0) {
+                snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&addr));
+                ESP_LOGI(TAG, "mDNS 解析 %s -> %s", host, ip_str);
+                host = ip_str;
+            } else {
+                ESP_LOGW(TAG, "mDNS 解析 %s 失败(%s),回退直连主机名",
+                         host, esp_err_to_name(err));
+            }
         }
     }
 

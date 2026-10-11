@@ -17,13 +17,16 @@
 #include "bsp_i2c.h"
 #include "bsp_pins.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "mdns.h"
 
+#include "key_guard.h"
 #include "podcast.h"
 #include "podcast_api.h"
 #include "podcast_player.h"
@@ -50,6 +53,13 @@ static QueueHandle_t s_evt_queue;   // 按键 + WiFi 事件 → 主循环
 static QueueHandle_t s_net_queue;   // 抓取指令 → net_task(独立队列,不竞态)
 static volatile bool s_net_up;
 static volatile bool s_sntp_started;
+static volatile bool s_input_ready; // 按键分发就绪(队列+按钮初始化完成后置 true)
+
+// 深睡按键唤醒保护:唤醒那颗键在整个启动期间还按着,先挡住它的动作,
+// 直到松手(或 10 秒超时),否则一开机就会误触发一次播放/暂停。
+// 状态机在 key_guard.h,契约由 tests/test_key_wake_contract.py 锁定。
+#define KEY_GUARD_MAX_US (10LL * 1000 * 1000)
+static key_guard_t s_key_guard;
 
 typedef enum {
     NET_FETCH,   // 去拉最新节目(有新就切)
@@ -121,9 +131,19 @@ static void on_wifi_event(bool connected, bool config_ap, const char *ap_ssid,
     xQueueSend(s_evt_queue, &evt, 0);
 }
 
-// 按键回调(跑在 esp_timer 任务,只入队)。
+// 按键回调(跑在 esp_timer 任务,只入队)。注意顺序:先消费唤醒保护,
+// 再做就绪检查 —— 松手事件可能在分发就绪前到达,直接丢弃会让保护
+// 一直卡着吞掉下一次真正的按键。
 static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
     (void)user;
+    const bool was_armed = s_key_guard.armed;
+    if (key_guard_consume(&s_key_guard, ev == BSP_BTN_RELEASE, esp_timer_get_time())) {
+        if (was_armed && !s_key_guard.armed) {
+            ESP_LOGI(TAG, "唤醒键已松手,按键恢复响应");
+        }
+        return;
+    }
+    if (!s_input_ready) return;
     if (ev != BSP_BTN_CLICK && ev != BSP_BTN_LONG) return;
     app_evt_t evt = { .kind = EVT_KEY, .btn = btn, .ev = ev };
     xQueueSend(s_evt_queue, &evt, 0);
@@ -161,6 +181,13 @@ static void ui_timer_cb(lv_timer_t *t) {
 void app_main(void) {
     ESP_LOGI(TAG, "王剑每日观察播客机启动");
 
+    // 按键唤醒时,那颗键在整个启动期间还按着。先武装保护,挡住它的动作(见 on_key)。
+    const uint32_t wake_causes = esp_sleep_get_wakeup_causes();
+    if (wake_causes & (1u << ESP_SLEEP_WAKEUP_GPIO)) {
+        key_guard_arm(&s_key_guard, esp_timer_get_time(), KEY_GUARD_MAX_US);
+        ESP_LOGI(TAG, "按键唤醒:先屏蔽按键动作,直到那颗键松手");
+    }
+
     bsp_i2c_init();
     if (bsp_display_init() != ESP_OK || !bsp_lvgl_init()) {
         ESP_LOGE(TAG, "显示/LVGL 初始化失败");
@@ -193,6 +220,7 @@ void app_main(void) {
         ESP_LOGE(TAG, "按键初始化失败");
         return;
     }
+    s_input_ready = true;  // 此后 on_key 才开始向主循环投递按键事件
 
     if (podcast_player_init() != ESP_OK) {
         ESP_LOGE(TAG, "播放器初始化失败");
