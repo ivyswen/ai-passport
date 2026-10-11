@@ -46,3 +46,7 @@ CONFIG_BT_ENABLED=n
 
 # --- 播客机:压缩字库(lv_font_conv 生成,省 Flash) ---
 CONFIG_LV_USE_FONT_COMPRESSED=y
+
+# --- 播客机:中转服务地址(AdGuardHome 内网 DNS 重写到盒子 IP,见 docs/podcast-player.md) ---
+CONFIG_PODCAST_RELAY_HOST="wj-relay.ivys.xyz"
+CONFIG_PODCAST_RELAY_PORT=9876

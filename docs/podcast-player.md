@@ -69,7 +69,7 @@ Managed dependencies (downloaded automatically at build time):
 `espressif/esp_audio_codec` (MP3 decode), `78/esp-wifi-connect`
 (provisioning), `espressif/mdns` (relay discovery).
 
-The relay address defaults to `wj-relay.local:8080`, changeable via
+The relay address defaults to `wj-relay.ivys.xyz:9876` (see `sdkconfig.defaults`; resolve it to the relay box via AdGuardHome DNS rewrite on your LAN), changeable via
 `idf.py menuconfig → Podcast Player`. Font coverage: 262 fixed UI glyphs
 plus 1500 high-frequency Hanzi for dynamic episode titles; rare characters
 outside the subset render as placeholder boxes.

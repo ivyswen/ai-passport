@@ -62,7 +62,7 @@ python -m esptool --chip esp32c3 -p <串口> -b 460800 write-flash 0x0 build/wj-
 托管依赖（构建时自动下载）：`espressif/esp_audio_codec`（MP3 解码）、
 `78/esp-wifi-connect`（配网）、`espressif/mdns`（发现中转服务）。
 
-中转地址默认 `wj-relay.local:8080`，`idf.py menuconfig → Podcast Player`
+中转地址默认 `wj-relay.ivys.xyz:9876`（见 `sdkconfig.defaults`；局域网内用 AdGuardHome DNS 重写指向中转盒子），`idf.py menuconfig → Podcast Player`
 可改。字库覆盖：UI 固定文案 262 字全覆盖 + 1500 高频汉字（动态标题），
 生僻字显示占位框。
 
